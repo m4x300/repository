@@ -8,7 +8,21 @@ Requirements:
 - os
 
 Usage:
-scroll to
+scroll to ###parameters section in oder to parse the necessary layer names.
+these are:
+point_density #density of sampling points
+ed_threshold #threshold of euclidean distance
+sampled_points #name of layer containing sampling points
+buildings #name of layer containing reference geometries
+id #unique_id_column_of_reference_geometries
+raster #georeferenced map scan
+legend #legend conrtaining reference RGB values
+leg_rgb = ['r','g','b'] #list of fieldnames in legend containing RGB values
+category_id #field index for category name in legend
+type_description #fieldname that describes the legend layers
+
+note that all layers are beeing loaded by the function sel_bystr()
+
 
 Author: Maximilian Wonaschütz
 Date: 2023-02-14
