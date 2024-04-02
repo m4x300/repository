@@ -16,7 +16,7 @@ In order to make good use of the scripts here the following prerequisites are ne
 
 ## How-To
 
-The area signatures of a map's legend are digitized, then using the 
+After the area signatures of a map's legend are digitized, 
 `sampling_points.model3` or its python equivalent is applied and sampling points are beeing generated that contain the RGB values of the signature's icons. The average rgb values are grouped by the digitized legend features using an sql expression such as in `legend_rgb_values.sql`. The result serves as reference value table for the classification of a polygon layer.
 The same model can be used to generate the sampling points for the poygon layer, however its functionality is also incorporated into `rgb_sampling_distances.py` This file also contains an overview of the filterparameters such as point density, distance threshold etc.
 A more detailed description (in german) can be found [here](https://www.netidee.at/urbangeodata/euklidische-distanz).
