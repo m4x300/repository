@@ -1,8 +1,28 @@
-from qgis.core import QgsVectorLayer, QgsField, QgsFeature, QgsProject, QgsFields, Qgis
+"""
+Script Name: rgb_sampling_distances
+Description: This script is designed to work with QGIS, leveraging the PyQGIS library to create sampling points for RGB values inside polygons in order to classify these by euclidean distance by a given set of reference values (map legend)
+
+Requirements:
+- QGIS 3.36 or later
+- geopandas
+- os
+
+Usage:
+scroll to
+
+Author: Maximilian Wonaschütz
+Date: 2023-02-14
+License: GNU General Public License v2.0
+
+"""
+
+from qgis.core import QgsVectorLayer, QgsField, QgsFeature, QgsProject, QgsFields, NULL, processing, QVariant, QgsVectorFileWriter, QgsVectorLayerJoinInfo, QgsProperty
+from qgis.utils import iface
 import geopandas as gpd
 import pandas as pd
 import numpy as np
 import time
+import os
 
 start = time.time()
 
@@ -27,7 +47,7 @@ def sel_bystr(gpx_str): #returns layer from TOC by searchstring
 def addFields(fieldNameList,layer, type = QVariant.Double): #double % is standard type
     for i in fieldNameList:
         fieldName = QgsField(i,type)
-        if layer.dataProvider().addAttributes([fieldName]) == True:#geht eleganter
+        if layer.dataProvider().addAttributes([fieldName]) == True:
             #print('adding field "{}"'.format(i))
             layer.updateFields()
     #else:
@@ -184,15 +204,14 @@ start = time.time()
 point_density = 0.5 #per m²
 ed_threshold = 65 #threshold of euclidean distance
 n = QgsProperty.fromExpression(f'round($area*{point_density},0)')
-sampled_points = sel_bystr("sampled_points_fmzk")
-sampling_pts_count = sampled_points.featureCount() #kommt in der pandas berechnung
-buildings = sel_bystr("geb_split_fmzk")
-id = 'fid'
-raster = sel_bystr("Wien_Stadtverfall_modified_31256_534")
-#raster = sel_bystr("aus15_georeferenced")
+sampled_points = sel_bystr("name_of_layer_sampling_points")
+sampling_pts_count = sampled_points.featureCount() #for creating meaningful layer name
+buildings = sel_bystr("name_of_layer_reference_geometries")
+id = 'unique_id_column_of_reference_geometries'
+raster = sel_bystr("name_of_rasterlayer")
 ####legend
-legend = sel_bystr("legende_adjusted")
-leg_rgb = ['r','g','b']
+legend = sel_bystr("reference_legend")
+leg_rgb = ['r','g','b'] #fieldnames of rgb
 category_id = 'fid' #field index for category name in legend
 type_description = 'txt' #fieldname that describes the legend layers
 ###get field indices
@@ -201,19 +220,19 @@ cat_id = getFIdx(category_id, legend)
 ###manage file handling
 filebase = f'{QgsProject.instance().readPath("./")}/'
 
-###distanzberechnungen
+###distance calculation
 leg_d = {}
 sampled_points.startEditing()
-for h in legend.getFeatures(): #grast rgb von der legende ab
+for h in legend.getFeatures(): #iterating rgb values from legend
     fieldname = f'dist_{h[cat_id]}'
-    leg_d[fieldname] = h[type_description] #dict {'dist_2':'Altbau'}
+    leg_d[fieldname] = h[type_description] #creates a dict
     addFields([fieldname], sampled_points)
     ref_rgb = [h[g] for g in leg_rgb_idx]
     for i in sampled_points.getFeatures():
-        rgb = ['band_1', 'band_2','band_3'] #qgis randompointsinpolygons default prefix
+        rgb = ['band_1', 'band_2','band_3'] #default prefix qgis randompointsinpolygons
         rgb_idx = [getFIdx(i, sampled_points) for i in rgb]
         ed = euclidean_distance([i[j] for j in rgb_idx], ref_rgb)
-        #ed = euclidean_distance([255 if not isinstance(i[j], int) else i[j] for j in rgb_idx], ref_rgb) # für tests größers als raster
+        #ed = euclidean_distance([255 if not isinstance(i[j], int) else i[j] for j in rgb_idx], ref_rgb)
         if ed < ed_threshold:
             i.setAttribute(fieldname,ed)
         sampled_points.updateFeature(i)
@@ -221,20 +240,9 @@ sampled_points.commitChanges()
 QgsProject.instance().addMapLayer(sampled_points) # required: all sampling_points w distances < ed_threshold
 duration(start, time.time(), text='Distance Calculation for points')
 
-"""#hier kommen aus irgendeinem grund andere und zu wenige min werte heraus!
-df = qgsvectorlayer_to_dataframe(layer)
-candidates = []
-for k, v in leg_d.items():
-    a = df[df[k].notnull()]
-    d = a.groupby('osm_id').agg(min=(k, min)).reset_index()
-    d = d.rename(columns={'min': k})
-    candidates.append(d)
-
-"""
-
-##hier werden die sampling points nach ihrer osmid vereinigt und u candidaten zusammengefasst
-##funktion query_calc macht die count/avg/min/ und anteilsrechnugnen
-q = f'?query=select * from {buildings.name()} ' #nimm den gebäudelayer und
+###group sampling points by reference id 
+####count/avg/min and shares are calculated in sql in query_calc
+q = f'?query=select * from {buildings.name()} ' #take building layer and join:
 q += " ".join([f'join({query_calc(id,k, sampled_points.name())})using({id})' for k, v in leg_d.items()])
 distances = QgsVectorLayer(q, 'distances', "virtual" )
 filename = f'{filebase}{distances.name()}_{distances.featureCount()}.gpkg'
@@ -243,6 +251,7 @@ duration(start, time.time(),text='Virtual layer creation')
 #df = df_to_memory_layer(distances_new)
 gdf = qgsvectorlayer_to_geodataframe(distances_new)
 """
+####
 dist_columns = [col for col in df.columns if col.startswith('min_dist_')]
 dist_avg_columns = [col for col in df.columns if col.startswith('avg_dist_')]
 points_columns = [col for col in df.columns if col.startswith('c_dist_')]
@@ -269,16 +278,12 @@ layer_name=f'prop_{buildings.name()}_{sampling_pts_count}'
 prop_layer = geodf_to_qgsvectorlayer(gdf, filebase, layer_name)
 #QgsProject.instance().addMapLayer(distance_layer)
 QgsProject.instance().addMapLayer(prop_layer)
-"""
-## join refgeo und legenden_cat mit distance_layer
-query_final = f'?query=select * from {buildings.name()}\
-join {distance_layer.name()} using osm_id\
-join {legend.name()} on cat_id=category_prop'
-"""
+
 ###adding fields for postprocessing
 fields_to_add = ['cat', 'control']
 addFields(fields_to_add,prop_layer, type = QVariant.Int)
 """
+###take probability as granted
 cat_idx = getFIdx('cat', prop_layer)
 category_prop_idx = getFIdx('cat', prop_layer)
 for f in prop_layer.getFeatures():
@@ -286,7 +291,7 @@ for f in prop_layer.getFeatures():
 prop_layer.commitChanges()
 """
 create_join(prop_layer, legend, 'category_prop',category_id)
-#"r"||','||"g"||','||"b"||',255'
+#"r"||','||"g"||','||"b"||',255' #expression for symbology
 
 stop = time.time()
 duration(start, stop)
